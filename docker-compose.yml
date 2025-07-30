@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # Backend API Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./backend:/app
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=sqlite:///./data/app.db
+      - GOOGLE_CLOUD_CREDENTIALS=/app/credentials.json
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    networks:
+      - mna-network
+    restart: unless-stopped
+
+  # Frontend React Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      - CHOKIDAR_USEPOLLING=true
+    depends_on:
+      - backend
+    networks:
+      - mna-network
+    restart: unless-stopped
+
+  # Redis for caching and task queue
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - mna-network
+    restart: unless-stopped
+
+  # Background worker for processing
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A app.main worker --loglevel=info
+    volumes:
+      - ./data:/app/data
+      - ./backend:/app
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=sqlite:///./data/app.db
+      - GOOGLE_CLOUD_CREDENTIALS=/app/credentials.json
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    networks:
+      - mna-network
+    restart: unless-stopped
+
+  # Database (PostgreSQL for production, SQLite for dev)
+  # db:
+  #   image: postgres:15
+  #   environment:
+  #     - POSTGRES_DB=mna_tool
+  #     - POSTGRES_USER=mna_user
+  #     - POSTGRES_PASSWORD=mna_password
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+  #   networks:
+  #     - mna-network
+
+volumes:
+  redis_data:
+  # postgres_data:
+
+networks:
+  mna-network:
+    driver: bridge
